@@ -14,6 +14,7 @@ Run with: python app.py
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox, filedialog
+from pyproj import Transformer
 import os
 import numpy as np
 
@@ -21,7 +22,34 @@ import tkintermapview
 
 from ml_euroradar.gpr_reader.ids_reader import IDS_Reader
 
+from shapely.geometry import LineString
+from shapely.ops import transform
+from pyproj import Transformer
 # ---- Functions used by both the menu and the toolbar ----
+
+def _gps_line_to_poly(line,work_crs = "EPSG:28992"):
+    """
+    WGS84 (EPSG:4326)
+        ↓
+    RD New (EPSG:28992)
+            ↓
+    Buffer (e.g. 5 m, 20 m, ...)
+            ↓
+    (Optional) back to WGS84
+    """
+    transformer_from_gps = Transformer.from_crs("EPSG:4326", work_crs, always_xy=False)
+    transformer_to_gps = Transformer.from_crs(work_crs, "EPSG:4326",  always_xy=False)
+
+    line_wgs = LineString(line)
+    line_rd = transform(transformer_from_gps.transform, line_wgs)
+
+    # Buffer 25 meters
+    buffer_rd = line_rd.buffer(0.3,cap_style="flat")
+
+    buffer_wgs = transform(transformer_to_gps.transform, buffer_rd)
+
+    return buffer_wgs
+
 
 def _show_about():
     messagebox.showinfo("About", "My Professional App\nVersion 1.0")
@@ -77,15 +105,15 @@ def update_plot():
                 path = map_widget.set_path(points, color="#adb5bd", width=2)
             elif swat_type == "L":
                 path = map_widget.set_path(points, color="#e03131", width=4)
-            else:
+            elif swat_type == "T":
                 path = map_widget.set_path(points, color="#03045e", width=4)
         else:
             if checked == "☐":   # ☐ ☑
-                path = map_widget.set_polygon(points, outline_color="#adb5bd", fill_color="#adb5bd", border_width=2)
+                path = map_widget.set_polygon(list(_gps_line_to_poly(points).exterior.coords), outline_color="#adb5bd", fill_color="#adb5bd", border_width=2)
             elif swat_type == "L":
-                path = map_widget.set_polygon(points, outline_color="#e03131", fill_color="#e03131", border_width=2)
-            else:
-                path = map_widget.set_polygon(points, outline_color="#03045e", fill_color="#03045e", border_width=2)
+                path = map_widget.set_polygon(list(_gps_line_to_poly(points).exterior.coords), outline_color="#e03131", fill_color="#e03131", border_width=2)
+            elif swat_type == "T":
+                path = map_widget.set_polygon(list(_gps_line_to_poly(points).exterior.coords), outline_color="#03045e", fill_color="#03045e", border_width=2)
 
 
         map_paths.append(path)
