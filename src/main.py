@@ -17,7 +17,7 @@ from tkinter import messagebox, filedialog
 from pyproj import Transformer
 import os
 import numpy as np
-
+from math import atan2, degrees
 import tkintermapview
 
 from ml_euroradar.gpr_reader.ids_reader import IDS_Reader
@@ -88,6 +88,7 @@ def _open_ids():
 map_paths = []
 
 def update_plot():
+    # todo  save path and poly somewere
     """Redraw the GPS routes on the map based on which swaths are checked."""
     for path in map_paths:
         path.delete()
@@ -96,24 +97,23 @@ def update_plot():
     for item in tree.get_children():
         values = tree.item(item, "values")
         checked, swath, length, swat_type = values
-        points = swath_routes[int(swath)]
 
 
         ###
         if line_not_poly:
             if checked == "☐":   # ☐ ☑
-                path = map_widget.set_path(points, color="#adb5bd", width=2)
+                path = map_widget.set_path(swath_routes[int(swath)], color="#adb5bd", width=2)
             elif swat_type == "L":
-                path = map_widget.set_path(points, color="#e03131", width=4)
+                path = map_widget.set_path(swath_routes[int(swath)], color="#e03131", width=4)
             elif swat_type == "T":
-                path = map_widget.set_path(points, color="#03045e", width=4)
+                path = map_widget.set_path(swath_routes[int(swath)], color="#03045e", width=4)
         else:
             if checked == "☐":   # ☐ ☑
-                path = map_widget.set_polygon(list(_gps_line_to_poly(points).exterior.coords), outline_color="#adb5bd", fill_color="#adb5bd", border_width=2)
+                path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#adb5bd", fill_color="#adb5bd", border_width=2)
             elif swat_type == "L":
-                path = map_widget.set_polygon(list(_gps_line_to_poly(points).exterior.coords), outline_color="#e03131", fill_color="#e03131", border_width=2)
+                path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#e03131", fill_color="#e03131", border_width=2)
             elif swat_type == "T":
-                path = map_widget.set_polygon(list(_gps_line_to_poly(points).exterior.coords), outline_color="#03045e", fill_color="#03045e", border_width=2)
+                path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#03045e", fill_color="#03045e", border_width=2)
 
 
         map_paths.append(path)
@@ -128,6 +128,82 @@ def _switch_line_poly():
         line_button.config(text="poly")
         line_not_poly = True
     update_plot()
+
+def _sort_tl():
+    # transformer
+    work_crs = "EPSG:28992"
+    transformer_from_gps = Transformer.from_crs("EPSG:4326", work_crs, always_xy=False)
+
+    # each item. I want to know the angle
+    angles_list = []
+    for item in tree.get_children():
+        values = tree.item(item, "values")
+        checked, swath, length, swat_type = values
+
+        p1 = swath_routes[int(swath)][0]
+        p2 = swath_routes[int(swath)][-1]
+
+        # Transform to RD coordinates
+        x1, y1 = transformer_from_gps.transform(*p1)
+        x2, y2 = transformer_from_gps.transform(*p2)
+
+
+
+        angle_rad = atan2(y2 - y1, x2 - x1)
+        angle_deg = degrees(angle_rad) % 180 # up and down are same direction
+        angles_list.append(angle_deg)
+
+    order_list = angles_list.copy()
+    order_list.sort()
+
+    end_list = len(order_list)
+    nr_close_angles = [0] * end_list
+    j = 0
+    while j > -end_list and order_list[j] - 180 < order_list[0] - 45:
+        j -= 1
+
+    # close_angles[0] += j
+    i = 0
+    while i < end_list:
+        bla = 0
+        if j < 0:
+            bla = 180
+
+        if order_list[i] > order_list[j] - bla + 45:
+            nr_close_angles[j] += i - j - 1
+            j += 1
+        else:
+            nr_close_angles[i] += i - j
+            i += 1
+
+    max_val = max(nr_close_angles)
+    best_angle = order_list[nr_close_angles.index(max_val)]
+
+    # print(int(swath), angle_deg)
+
+    for item in tree.get_children():
+        checked, swath, length, swat_type = tree.item(item, "values")
+
+        p1 = swath_routes[int(swath)][0]
+        p2 = swath_routes[int(swath)][-1]
+
+        # Transform to RD coordinates
+        x1, y1 = transformer_from_gps.transform(*p1)
+        x2, y2 = transformer_from_gps.transform(*p2)
+
+        angle_rad = atan2(y2 - y1, x2 - x1)
+        angle_deg = degrees(angle_rad) % 180 # up and down are same direction
+
+        if abs(best_angle - angle_deg) <= 45 or abs(best_angle - angle_deg) >= 135:
+            tree.item(item, values=(checked, swath, length, 'L'))
+        else:
+            tree.item(item, values=(checked, swath, length, 'T'))
+
+    update_plot()
+
+def _save_svy():
+
+
 
 
 
@@ -144,23 +220,31 @@ def show_swaths():
     paned.add(plot_frame, weight=1)
 
     # === Toolbar list ===
-    # toolbar = ttk.Frame(tree_frame, padding=(5, 3))
-    # toolbar.pack(side="top", fill="x")
-    #
-    # ttk.Button(toolbar, text="T/L").pack(side="left", padx=2)
+    toolbar_tree = ttk.Frame(tree_frame, padding=(5, 3))
+    toolbar_tree.pack(side="top", fill="x")
+
+    line_button = ttk.Button(toolbar_tree, text="save", command=_save_svy)
+    line_button.pack(side="left", padx=2)
+
+    # ttk.Button(toolbar_tree, text="T/L").pack(side="left", padx=2)
     # ttk.Button(toolbar, text="Save").pack(side="left", padx=2)
     # ttk.Button(toolbar, text="KML").pack(side="left", padx=2)
 
     # === Toolbar map ===
-    toolbar = ttk.Frame(plot_frame, padding=(5, 3))
-    toolbar.pack(side="top", fill="x")
+    toolbar_map = ttk.Frame(plot_frame, padding=(5, 3))
+    toolbar_map.pack(side="top", fill="x")
 
     global line_not_poly
     line_not_poly = True
     global line_button
 
-    line_button = ttk.Button(toolbar, text="poly", command=_switch_line_poly) # todo
+    line_button = ttk.Button(toolbar_map, text="poly", command=_switch_line_poly)
     line_button.pack(side="left", padx=2)
+
+    sort_tl_button = ttk.Button(toolbar_map, text="sort T/L", command=_sort_tl)
+    sort_tl_button.pack(side="left", padx=2)
+
+
 
     # ttk.Button(toolbar, text="Save").pack(side="left", padx=2)
     # ttk.Button(toolbar, text="KML").pack(side="left", padx=2)
@@ -210,9 +294,13 @@ def show_swaths():
         tree.insert("", tk.END, values=("☑", swath, f"{length:.2f}", swat_t))
 
     # --- Map (right) ---
-    global map_widget, swath_routes
+    global map_widget, swath_routes, swath_poly
     # swath_routes = generate_mock_routes(rows)
     swath_routes = IDS_reader.get_swats_latlong()
+    swath_poly = dict()
+    for item in swath_routes:
+        swath_poly[item] = list(_gps_line_to_poly(swath_routes[item]).exterior.coords)
+
 
     map_widget = tkintermapview.TkinterMapView(plot_frame, corner_radius=0, max_zoom=22)
     # map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}", max_zoom=22)
