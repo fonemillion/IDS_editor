@@ -8,9 +8,13 @@ A more "professional" looking Tkinter app:
 
 Requires: pip install tkintermapview
 
-Run with: python app.py
-"""
+Run with: python main.py
 
+pyinstaller --onefile --windowed src/main.py
+pyinstaller --onefile --windowed --paths "..\ML_euroradar\src" src\main.py
+"""
+import requests
+from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox, filedialog
@@ -19,6 +23,7 @@ import os
 import numpy as np
 from math import atan2, degrees
 import tkintermapview
+from tkintermapview import TkinterMapView
 
 from ml_euroradar.gpr_reader.ids_reader import IDS_Reader
 
@@ -26,6 +31,51 @@ from shapely.geometry import LineString
 from shapely.ops import transform
 from pyproj import Transformer
 # ---- Functions used by both the menu and the toolbar ----
+
+class OverzoomMapView(TkinterMapView):
+    """Allows zooming past the tile server's native max zoom by
+    cropping and upscaling the deepest available real tile."""
+
+    native_max_zoom = 19  # highest zoom level the tile server actually has
+
+    def request_image(self, zoom, x, y, db_cursor=None):
+        if zoom <= self.native_max_zoom:
+            # normal behavior, tile really exists at this zoom
+            return super().request_image(zoom, x, y, db_cursor=db_cursor)
+
+        # how many zoom levels past the native max are we?
+        diff = zoom - self.native_max_zoom
+        factor = 2 ** diff
+
+        # the "parent" tile at native zoom that covers this deep tile
+        native_x = x // factor
+        native_y = y // factor
+
+        # fetch (or reuse from cache) the real tile at native zoom
+        cache_key = f"{self.native_max_zoom}{native_x}{native_y}"
+        if cache_key in self.tile_image_cache:
+            native_image_tk = self.tile_image_cache[cache_key]
+            native_image = ImageTk.getimage(native_image_tk).convert("RGB")
+        else:
+            url = self.tile_server.replace("{x}", str(native_x)) \
+                                   .replace("{y}", str(native_y)) \
+                                   .replace("{z}", str(self.native_max_zoom))
+            response = requests.get(url, stream=True, headers={"User-Agent": "TkinterMapView"})
+            native_image = Image.open(response.raw).convert("RGB")
+
+        # figure out which sub-square of the native tile this deep tile is
+        crop_size = self.tile_size / factor
+        left = (x % factor) * crop_size
+        top = (y % factor) * crop_size
+        cropped = native_image.crop((left, top, left + crop_size, top + crop_size))
+
+        # scale that crop back up to full tile size (this is the "distortion")
+        upscaled = cropped.resize((self.tile_size, self.tile_size), Image.LANCZOS)
+
+        image_tk = ImageTk.PhotoImage(upscaled)
+        self.tile_image_cache[f"{zoom}{x}{y}"] = image_tk
+        return image_tk
+
 
 def _gps_line_to_poly(line,work_crs = "EPSG:28992"):
     """
@@ -88,7 +138,7 @@ def _open_ids():
 map_paths = []
 
 def update_plot():
-    # todo  save path and poly somewere
+    # todo cleanup
     """Redraw the GPS routes on the map based on which swaths are checked."""
     for path in map_paths:
         path.delete()
@@ -102,18 +152,36 @@ def update_plot():
         ###
         if line_not_poly:
             if checked == "☐":   # ☐ ☑
-                path = map_widget.set_path(swath_routes[int(swath)], color="#adb5bd", width=2)
+                if item in tree.selection():
+                    path = map_widget.set_path(swath_routes[int(swath)], color="#b1b5ba", width=3)
+                else:
+                    path = map_widget.set_path(swath_routes[int(swath)], color="#adb5bd", width=1)
             elif swat_type == "L":
-                path = map_widget.set_path(swath_routes[int(swath)], color="#e03131", width=4)
+                if item in tree.selection():
+                    path = map_widget.set_path(swath_routes[int(swath)], color="#f5e022", width=4)
+                else:
+                    path = map_widget.set_path(swath_routes[int(swath)], color="#e03131", width=2)
             elif swat_type == "T":
-                path = map_widget.set_path(swath_routes[int(swath)], color="#03045e", width=4)
+                if item in tree.selection():
+                    path = map_widget.set_path(swath_routes[int(swath)], color="#22b2f5", width=4)
+                else:
+                    path = map_widget.set_path(swath_routes[int(swath)], color="#03045e", width=2)
         else:
             if checked == "☐":   # ☐ ☑
-                path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#adb5bd", fill_color="#adb5bd", border_width=2)
+                if item in tree.selection():
+                    path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#b1b5ba", fill_color="#b1b5ba", border_width=3)
+                else:
+                    path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#adb5bd", fill_color="#adb5bd", border_width=1)
             elif swat_type == "L":
-                path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#e03131", fill_color="#e03131", border_width=2)
+                if item in tree.selection():
+                    path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#f5e022", fill_color="#f5e022", border_width=4)
+                else:
+                    path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#e03131", fill_color="#e03131", border_width=2)
             elif swat_type == "T":
-                path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#03045e", fill_color="#03045e", border_width=2)
+                if item in tree.selection():
+                    path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#22b2f5", fill_color="#22b2f5", border_width=4)
+                else:
+                    path = map_widget.set_polygon(swath_poly[int(swath)], outline_color="#03045e", fill_color="#03045e", border_width=2)
 
 
         map_paths.append(path)
@@ -203,8 +271,41 @@ def _sort_tl():
 
 def _save_svy():
 
+    tr = {"T": "Transversal",
+          "L": "Longitudinal",}
 
+    edits_checked = dict()
+    edits_type = dict()
+    for item in tree.get_children():
+        values = tree.item(item, "values")
+        checked, swath, length, swat_type = values
 
+        edits_checked[str(swath)] = (checked == "☑")
+        edits_type[str(swath)] = tr[swat_type]
+
+    IDS_reader.edit_svy_type(edits_type)
+    IDS_reader.save_svy()
+
+def _switch_tl():
+    selected_items = tree.selection()
+
+    for item in selected_items:
+        values = list(tree.item(item, "values"))
+        values[3] = "T" if values[3] == "L" else "L"
+        tree.item(item, values=values)
+    update_plot()
+
+def _switch_map():
+    global map_toggle
+    if map_toggle:
+        map_widget.set_tile_server("https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/2026_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg",
+                                   max_zoom=22)
+        map_widget.native_max_zoom = 21
+    else:
+        map_widget.set_tile_server("https://tile.openstreetmap.org/{z}/{x}/{y}.png", max_zoom=22)
+        map_widget.native_max_zoom = 19
+
+    map_toggle = (not map_toggle)
 
 
 def show_swaths():
@@ -223,8 +324,11 @@ def show_swaths():
     toolbar_tree = ttk.Frame(tree_frame, padding=(5, 3))
     toolbar_tree.pack(side="top", fill="x")
 
-    line_button = ttk.Button(toolbar_tree, text="save", command=_save_svy)
-    line_button.pack(side="left", padx=2)
+    save_button = ttk.Button(toolbar_tree, text="save", command=_save_svy)
+    save_button.pack(side="left", padx=2)
+
+    switch_tl_button = ttk.Button(toolbar_tree, text="switch T/L", command=_switch_tl)
+    switch_tl_button.pack(side="left", padx=2)
 
     # ttk.Button(toolbar_tree, text="T/L").pack(side="left", padx=2)
     # ttk.Button(toolbar, text="Save").pack(side="left", padx=2)
@@ -244,7 +348,8 @@ def show_swaths():
     sort_tl_button = ttk.Button(toolbar_map, text="sort T/L", command=_sort_tl)
     sort_tl_button.pack(side="left", padx=2)
 
-
+    switch_map_button = ttk.Button(toolbar_map, text="switch map", command=_switch_map)
+    switch_map_button.pack(side="left", padx=2)
 
     # ttk.Button(toolbar, text="Save").pack(side="left", padx=2)
     # ttk.Button(toolbar, text="KML").pack(side="left", padx=2)
@@ -256,6 +361,8 @@ def show_swaths():
         columns=("selected", "swath", "length", "type"),
         show="headings"
     )
+
+
 
     tree.heading("selected", text="")
     tree.heading("swath", text="Swath")
@@ -301,9 +408,16 @@ def show_swaths():
     for item in swath_routes:
         swath_poly[item] = list(_gps_line_to_poly(swath_routes[item]).exterior.coords)
 
-
-    map_widget = tkintermapview.TkinterMapView(plot_frame, corner_radius=0, max_zoom=22)
+    global map_toggle
+    map_toggle = True
+    map_widget = OverzoomMapView(plot_frame, corner_radius=0, max_zoom=22)
+    map_widget.native_max_zoom = 19
+    # map_widget = tkintermapview.TkinterMapView(plot_frame, corner_radius=0, max_zoom=22)
     # map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}", max_zoom=22)
+    # map_widget.set_tile_server(
+    #     "https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/2026_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg",
+    #     max_zoom=22  # try 20, 21, 22 - see note below
+    # )
     map_widget.pack(fill=tk.BOTH, expand=True)
 
     # Center roughly on the mock survey area and zoom in close
@@ -343,6 +457,11 @@ def show_swaths():
         update_plot()
 
     tree.bind("<Button-1>", toggle_cell)
+
+    def on_tree_select(event):
+        update_plot()
+
+    tree.bind("<<TreeviewSelect>>", on_tree_select)
 
 # ---
 IDS_reader = IDS_Reader()
