@@ -17,12 +17,9 @@ import requests
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk
-from tkinter import messagebox, filedialog, simpledialog
-from pyproj import Transformer
+from tkinter import messagebox, filedialog
 import os
-import numpy as np
 from math import atan2, degrees
-import tkintermapview
 from tkintermapview import TkinterMapView
 
 from ml_euroradar.gpr_creator.ids_creator import GSSI_to_IDS
