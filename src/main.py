@@ -96,7 +96,8 @@ def _gps_line_to_poly(line,work_crs = "EPSG:28992"):
     buffer_rd = line_rd.buffer(0.3,cap_style="flat")
 
     buffer_wgs = transform(transformer_to_gps.transform, buffer_rd)
-
+    if buffer_wgs.geom_type == "MultiPolygon":
+        buffer_wgs = max(buffer_wgs.geoms, key=lambda p: p.area)
     return buffer_wgs
 
 
@@ -373,7 +374,7 @@ def _to_ids():
 
     path = filedialog.asksaveasfilename(
         title="Choose location and name for new project folder",
-        initialdir=GSSI_reader.folder_name,
+        initialdir=os.path.split(GSSI_reader.folder_name)[0],
     )
     if os.path.exists(path):
         messagebox.showerror(title="Error",message="Folder already exists.")
@@ -394,13 +395,34 @@ def _selected_to_ids():
 
     path = filedialog.asksaveasfilename(
         title="Choose location and name for new project folder",
-        initialdir=GSSI_reader.folder_name,
+        initialdir=os.path.split(GSSI_reader.folder_name)[0],
     )
     if os.path.exists(path):
         messagebox.showerror(title="Error", message="Folder already exists.")
 
     output_dir, project_name = os.path.split(path)
     GSSI_to_IDS(project_name, output_dir, GSSI_reader.get_proj_folder(),subswat=selected_swats)
+
+def _no_gps_to_ids():
+
+    path = filedialog.asksaveasfilename(
+        title="Choose location and name for new project folder",
+        initialdir=os.path.split(GSSI_reader.folder_name)[0],
+    )
+    if os.path.exists(path):
+        messagebox.showerror(title="Error",message="Folder already exists.")
+
+    selected_swats = []
+    for item in tree.get_children():
+        values = tree.item(item, "values")
+        checked, swath, gnns_string, swat_type, swat_depth = values
+        if gnns_string == "☐":
+            selected_swats.append(swath)
+
+    output_dir, project_name = os.path.split(path)
+    GSSI_to_IDS(project_name, output_dir, GSSI_reader.get_proj_folder(),subswat=selected_swats, PositioningSystem = "Internal")
+
+
 
 def show_swaths_ids():
     clear_content()
@@ -578,6 +600,9 @@ def show_swaths_gssi():
 
     convert_selected_button = ttk.Button(toolbar_tree, text="selected to ids", command=_selected_to_ids)
     convert_selected_button.pack(side="left", padx=2)
+
+    convert_nogps_button = ttk.Button(toolbar_tree, text="no gps to ids", command=_no_gps_to_ids)
+    convert_nogps_button.pack(side="left", padx=2)
     #
     # switch_tl_button = ttk.Button(toolbar_tree, text="switch T/L", command=_switch_tl)
     # switch_tl_button.pack(side="left", padx=2)
