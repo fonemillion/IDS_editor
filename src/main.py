@@ -17,7 +17,7 @@ import requests
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk
-from tkinter import messagebox, filedialog
+from tkinter import messagebox, filedialog, simpledialog
 from pyproj import Transformer
 import os
 import numpy as np
@@ -25,6 +25,7 @@ from math import atan2, degrees
 import tkintermapview
 from tkintermapview import TkinterMapView
 
+from ml_euroradar.gpr_creator.ids_creator import GSSI_to_IDS
 from ml_euroradar.gpr_reader.gssi_reader import GSSI_Reader
 from ml_euroradar.gpr_reader.ids_reader import IDS_Reader
 
@@ -371,6 +372,38 @@ def _switch_map():
 
     map_toggle = (not map_toggle)
 
+def _to_ids():
+
+    path = filedialog.asksaveasfilename(
+        title="Choose location and name for new project folder",
+        initialdir=GSSI_reader.folder_name,
+    )
+    if os.path.exists(path):
+        messagebox.showerror(title="Error",message="Folder already exists.")
+
+
+    output_dir, project_name = os.path.split(path)
+    GSSI_to_IDS(project_name, output_dir, GSSI_reader.get_proj_folder())
+
+
+def _selected_to_ids():
+
+    selected_items = tree.selection()
+
+    selected_swats = []
+    for item in selected_items:
+        values = list(tree.item(item, "values"))
+        selected_swats.append(values[1])
+
+    path = filedialog.asksaveasfilename(
+        title="Choose location and name for new project folder",
+        initialdir=GSSI_reader.folder_name,
+    )
+    if os.path.exists(path):
+        messagebox.showerror(title="Error", message="Folder already exists.")
+
+    output_dir, project_name = os.path.split(path)
+    GSSI_to_IDS(project_name, output_dir, GSSI_reader.get_proj_folder(),subswat=selected_swats)
 
 def show_swaths_ids():
     clear_content()
@@ -540,11 +573,14 @@ def show_swaths_gssi():
     paned.add(plot_frame, weight=1)
 
     # === Toolbar list ===
-    # toolbar_tree = ttk.Frame(tree_frame, padding=(5, 3))
-    # toolbar_tree.pack(side="top", fill="x")
-    #
-    # save_button = ttk.Button(toolbar_tree, text="save", command=_save_svy)
-    # save_button.pack(side="left", padx=2)
+    toolbar_tree = ttk.Frame(tree_frame, padding=(5, 3))
+    toolbar_tree.pack(side="top", fill="x")
+
+    convert_button = ttk.Button(toolbar_tree, text="to ids", command=_to_ids)
+    convert_button.pack(side="left", padx=2)
+
+    convert_selected_button = ttk.Button(toolbar_tree, text="selected to ids", command=_selected_to_ids)
+    convert_selected_button.pack(side="left", padx=2)
     #
     # switch_tl_button = ttk.Button(toolbar_tree, text="switch T/L", command=_switch_tl)
     # switch_tl_button.pack(side="left", padx=2)
@@ -586,10 +622,11 @@ def show_swaths_gssi():
     tree.heading("type", text="Type")
     tree.heading("depth", text="Depth")
 
-    # tree.column("selected", width=35, anchor="center", stretch=False)
-    # tree.column("swath", width=50, stretch=False)
-    # tree.column("length", width=100, stretch=False)
-    # tree.column("type", width=50, anchor="center", stretch=False)
+    tree.column("selected", width=35, anchor="center", stretch=False)
+    tree.column("swath", width=50, stretch=False)
+    tree.column("gnns", width=35, anchor="center", stretch=False)
+    tree.column("type", width=50, anchor="center", stretch=False)
+    tree.column("depth", width=50, stretch=False)
 
     scrollbar = ttk.Scrollbar(
         tree_frame,
